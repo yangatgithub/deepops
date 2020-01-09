@@ -1,116 +1,59 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# This script is meant to be run after a clean K8S deployment (it can also be run later for debugging)
+# It will get a count of all the GPU in the cluster and attempt to run a job against each one
+# Check the output and verify the number of nodes and GPUs is as expected
+# TODO: This script should be wrapped by Ansible to verify that the output of nvidia-smi on each node matches K8S
 
-# job_name is defined in cluster-gpu-test-job.yml file
+CLUSTER_VERIFY_NS=cluster-gpu-verify
+
 # Ensure we start in the correct working directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 ROOT_DIR="${SCRIPT_DIR}/.."
 cd "${ROOT_DIR}" || exit 1
+TESTS_DIR=$ROOT_DIR/tests
 
-
-file_path=$ROOT_DIR/tests
-if [ -f $file_path/cluster-gpu-test-job.yml ]; then 
-	job_name=$(cat $file_path/cluster-gpu-test-job.yml | grep -A1 metadata | awk '{print $2}')
-else
-	job_name="cluster-gpu-test-job.yml"
-fi
-
+job_name=$(cat $TESTS_DIR/cluster-gpu-test-job.yml | grep -A1 metadata | awk '{print $2}')
 echo "job_name=$job_name"
 
-name_gpu_node=$(kubectl get nodes | grep gpu0 | awk '{print $1}')
-number_gpu_nodes=$(kubectl get nodes | grep gpu0 | wc | awk '{print $1}')
-echo "number of GPU nodes: $number_gpu_nodes"
+number_gpu_nodes=$(kubectl describe nodes | sed -n -e '/^Capacity/,/Allocatable/p' | grep nvidia.com/gpu: | wc -l)
+echo "number_gpu_nodes=$number_gpu_nodes"
 
-i=1
-total_gpus=0
-while [ $i -le $number_gpu_nodes ];
-do
-	gpu_in_node=$(kubectl describe nodes gpu0$i | grep -A7 Capacity | grep nvidia.com/gpu | awk '{print $2}')
-	printf "Number of GPUs installed in node$i: $gpu_in_node\n"
-	let total_gpus=total_gpus+$gpu_in_node
-	let i=i+1
-done
+total_gpus=$(kubectl -n ${CLUSTER_VERIFY_NS} describe nodes  | grep -A7 Capacity | grep nvidia.com/gpu | awk '{print $2}')
 echo "total_gpus=$total_gpus"
-echo "gpu_in_node=$gpu_in_node"
 
-echo ""
+echo "Creating/Deleting sandbox Namespace"
+kubectl delete ns ${CLUSTER_VERIFY_NS}
+kubectl create ns ${CLUSTER_VERIFY_NS}
 
-kubectl get jobs | grep $job_name &> /dev/null
-if [ $? == 0 ]; then
-        kubectl delete jobs $job_name > /dev/null
-fi
+echo "updating test yml"
+sed -i "s/.*DYNAMIC_PARALLELISM.*/  parallelism: ${total_gpus} # DYNAMIC_PARALLELISM/g" $TESTS_DIR/cluster-gpu-test-job.yml
+sed -i "s/.*DYNAMIC_COMPLETIONS.*/  completions: ${total_gpus} # DYNAMIC_COMPLETIONS/g" $TESTS_DIR/cluster-gpu-test-job.yml
 
 echo "executing ..."
-#yaml_file=$file_path/$job_name
-#echo "yaml=$yaml_file"
-#file_name=$yaml_file.yml
-#echo "file_name=$file_name"
-#kubectl create -f $file_name > /dev/null
-#kubectl create -f ($file_path/$job_name) > /dev/null
-kubectl create -f $file_path/cluster-gpu-test-job.yml > /dev/null
-sleep 15
-#kubectl get pods  > podstatus
+kubectl -n ${CLUSTER_VERIFY_NS} create -f $TESTS_DIR/cluster-gpu-test-job.yml > /dev/null
+sleep 5
 
-pods_output=$(kubectl get pods | awk '$1 ~/nvidia-smi/ && $3 ~/Completed/ {print $1}' )
+# The test job sleeps for 30 seconds, so if we create the pods and wait 5 seconds we should have everything in either a RUNNING or PENDING state
+pods_output=$(kubectl -n ${CLUSTER_VERIFY_NS} get pods | grep ${job_name} | awk '$3 ~/Running/ {print $1}' )
 string_array=($pods_output)
 number_pods=${#string_array[@]}
 
-#if [ $number_pods -lt $number_gpu_nodes ]
+echo "number_pods: ${number_pods}"
 if [ $number_pods -lt $total_gpus ]
 then
-  echo "GPU driver test failed, use 'kubectl describe nodes' to check GPU driver status"
-  exit 1
+    echo "GPU driver test failed, use 'kubectl -n ${CLUSTER_VERIFY_NS} describe nodes' to check GPU driver status"
+    exit 1
 fi
 
-
 # loop through all pod from each node
-
 i=1
-while [ $i -le $number_gpu_nodes ]; do
-	j=1
-	while [ $j -le $gpu_in_node ]; do
-		let k=i-1
-		#pod$i=${string_array[$k]}
-		echo ""
-		echo "Node gpu0$i driver is successfully installed:"
-		echo "----------------------------------------"
-		echo ""
-		#kubectl logs -f $pod1
-		kubectl logs -f ${string_array[$k]}
-#		pod$i=${string_array[$j]}
-#		echo "$pod$i"
-		let j=j+1
-	done
-	let i=i+1
+while [ $i -le $total_gpus ]; do
+    kubectl -n ${CLUSTER_VERIFY_NS} logs -f ${string_array[$k]}
+    let i=i+1
 done
 
-#pod1=${string_array[0]}
-#pod2=${string_array[1]}
+kubectl delete ns ${CLUSTER_VERIFY_NS}
 
-## loop through pods
-
-#i=1
-#while [ $i -le $number_gpu_nodes ];
-#do
-#	a=$(kubectl describe nodes gpu0$i | grep -A7 Capacity | grep nvidia.com/gpu | awk '{print $2}')
-#	printf "Number of GPUs installed in GPU node$i: $a\n"
-#	let i=i+1
-#done
-
-#a=$(kubectl describe nodes gpu01 | grep -A7 Capacity | grep nvidia.com/gpu | awk '{print $2}')
-#printf "Number of GPUs installed in node1: $a\n"
-#b=$(kubectl describe nodes gpu02 | grep -A7 Capacity | grep nvidia.com/gpu | awk '{print $2}')
-#printf "Number of GPUs installed in node2: $b\n\n"
-
-
-#echo "Node gpu01 driver is successfully installed:"
-#echo "------------------------"
-#echo ""
-#kubectl logs -f $pod1
-#echo ""
-#echo "Node gpu02 driver is successfully installed:"
-#echo "------------------------"
-#echo "pod2=$pod2"
-#kubectl logs -f $pod2
-
-#kubectl delete jobs $job_name > /dev/null
-
+echo "Number of Nodes: ${number_gpu_nodes}"
+echo "Number of GPUs: ${total_gpus}"
+echo "${number_pods} / ${total_gpus} GPU Jobs COMPLETED"
