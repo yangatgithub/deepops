@@ -17,10 +17,15 @@ TESTS_DIR=$ROOT_DIR/tests
 job_name=$(cat $TESTS_DIR/cluster-gpu-test-job.yml | grep -A1 metadata | awk '{print $2}')
 echo "job_name=$job_name"
 
-number_gpu_nodes=$(kubectl describe nodes | sed -n -e '/^Capacity/,/Allocatable/p' | grep nvidia.com/gpu: | wc -l)
-echo "number_gpu_nodes=$number_gpu_nodes"
-
-total_gpus=$(kubectl -n ${CLUSTER_VERIFY_NS} describe nodes  | grep -A7 Capacity | grep nvidia.com/gpu | awk '{print $2}')
+# Count the number of nodes with GPUs present and the total GPUs across all nodes
+number_gpu_nodes=0
+total_gpus=0
+gpus=`kubectl describe nodes | grep -A7 Capacity | grep nvidia.com/gpu | awk '{print $2}'`
+for node in ${gpus}; do
+    echo "Node found with ${node} GPUs"
+    let number_gpu_nodes=$number_gpu_nodes+1
+    let total_gpus=$total_gpus+$node
+done
 echo "total_gpus=$total_gpus"
 
 echo "Creating/Deleting sandbox Namespace"
