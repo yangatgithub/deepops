@@ -1,10 +1,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: tensorflow-example
+  name: cluster-gpu-tests
 spec:
-  parallelism: 2
-  completions: 2
+  parallelism: 4 # DYNAMIC_PARALLELISM
+  completions: 4 # DYNAMIC_COMPLETIONS
   backoffLimit: 5
   template:
     spec:
