@@ -11,7 +11,7 @@ spec:
       containers:
         - name: tensorflow-container
           image: nvcr.io/nvidia/cuda:10.0-devel
-          command: ["nvidia-smi"]
+          command: ["/bin/bash","-c","nvidia-smi && sleep 30"]
           args:
           resources:
             limits:

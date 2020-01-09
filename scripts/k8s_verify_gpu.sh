@@ -12,7 +12,6 @@ ROOT_DIR="${SCRIPT_DIR}/.."
 cd "${ROOT_DIR}" || exit 1
 TESTS_DIR=$ROOT_DIR/tests
 
-
 job_name=$(cat $TESTS_DIR/cluster-gpu-test-job.yml | grep -A1 metadata | awk '{print $2}')
 echo "job_name=$job_name"
 
@@ -22,7 +21,8 @@ echo "number_gpu_nodes=$number_gpu_nodes"
 total_gpus=$(kubectl -n ${CLUSTER_VERIFY_NS} describe nodes  | grep -A7 Capacity | grep nvidia.com/gpu | awk '{print $2}')
 echo "total_gpus=$total_gpus"
 
-echo "Creating sandbox Namespace"
+echo "Creating/Deleting sandbox Namespace"
+kubectl delete ns ${CLUSTER_VERIFY_NS}
 kubectl create ns ${CLUSTER_VERIFY_NS}
 
 echo "updating test yml"
@@ -31,9 +31,10 @@ sed -i "s/.*DYNAMIC_COMPLETIONS.*/  completions: ${total_gpus} # DYNAMIC_COMPLET
 
 echo "executing ..."
 kubectl -n ${CLUSTER_VERIFY_NS} create -f $TESTS_DIR/cluster-gpu-test-job.yml > /dev/null
-sleep 15
+sleep 5
 
-pods_output=$(kubectl -n ${CLUSTER_VERIFY_NS} get pods | grep ${job_name} | awk '$3 ~/Completed/ {print $1}' )
+# The test job sleeps for 30 seconds, so if we create the pods and wait 5 seconds we should have everything in either a RUNNING or PENDING state
+pods_output=$(kubectl -n ${CLUSTER_VERIFY_NS} get pods | grep ${job_name} | awk '$3 ~/Running/ {print $1}' )
 string_array=($pods_output)
 number_pods=${#string_array[@]}
 
@@ -44,7 +45,6 @@ then
     exit 1
 fi
 
-
 # loop through all pod from each node
 i=1
 while [ $i -le $total_gpus ]; do
@@ -53,6 +53,7 @@ while [ $i -le $total_gpus ]; do
 done
 
 kubectl delete ns ${CLUSTER_VERIFY_NS}
+
 echo "Number of Nodes: ${number_gpu_nodes}"
 echo "Number of GPUs: ${total_gpus}"
 echo "${number_pods} / ${total_gpus} GPU Jobs COMPLETED"
