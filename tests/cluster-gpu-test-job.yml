@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tensorflow-example
+spec:
+  parallelism: 2
+  completions: 2
+  backoffLimit: 5
+  template:
+    spec:
+      containers:
+        - name: tensorflow-container
+          image: nvcr.io/nvidia/cuda:10.0-devel
+          command: ["nvidia-smi"]
+          args:
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+      restartPolicy: Never
+
