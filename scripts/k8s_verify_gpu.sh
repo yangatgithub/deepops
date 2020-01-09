@@ -4,7 +4,9 @@
 # Check the output and verify the number of nodes and GPUs is as expected
 # TODO: This script should be wrapped by Ansible to verify that the output of nvidia-smi on each node matches K8S
 
-CLUSTER_VERIFY_NS=cluster-gpu-verify
+export KFCTL=${KFCTL:-~/kfctl}
+export CLUSTER_VERIFY_NS=${CLUSTER_VERIFY_NS:-cluster-gpu-verify}
+export CLUSTER_VERIFY_EXPECTED_PODS=${CLUSTER_VERIFY_EXPECTED_PODS:-}
 
 # Ensure we start in the correct working directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
@@ -31,19 +33,12 @@ sed -i "s/.*DYNAMIC_COMPLETIONS.*/  completions: ${total_gpus} # DYNAMIC_COMPLET
 
 echo "executing ..."
 kubectl -n ${CLUSTER_VERIFY_NS} create -f $TESTS_DIR/cluster-gpu-test-job.yml > /dev/null
-sleep 5
+sleep 10
 
-# The test job sleeps for 30 seconds, so if we create the pods and wait 5 seconds we should have everything in either a RUNNING or PENDING state
+# The test job sleeps for 30 seconds, so if we create the pods and wait less than 30 seconds we should have everything in either a RUNNING or PENDING state
 pods_output=$(kubectl -n ${CLUSTER_VERIFY_NS} get pods | grep ${job_name} | awk '$3 ~/Running/ {print $1}' )
 string_array=($pods_output)
 number_pods=${#string_array[@]}
-
-echo "number_pods: ${number_pods}"
-if [ $number_pods -lt $total_gpus ]
-then
-    echo "GPU driver test failed, use 'kubectl -n ${CLUSTER_VERIFY_NS} describe nodes' to check GPU driver status"
-    exit 1
-fi
 
 # loop through all pod from each node
 i=1
@@ -52,8 +47,21 @@ while [ $i -le $total_gpus ]; do
     let i=i+1
 done
 
-kubectl delete ns ${CLUSTER_VERIFY_NS}
-
 echo "Number of Nodes: ${number_gpu_nodes}"
 echo "Number of GPUs: ${total_gpus}"
 echo "${number_pods} / ${total_gpus} GPU Jobs COMPLETED"
+
+if [ $number_pods -lt $total_gpus ]; then
+    echo "ERROR: Detected ${total_gpus} GPUs, but found ${number_pods} Successful Pods"
+    echo "GPU driver test failed, use 'kubectl -n ${CLUSTER_VERIFY_NS} describe nodes' to check GPU driver status"
+    exit 1
+elif [ -n "${CLUSTER_VERIFY_EXPECTED_PODS}" ]; then
+    if [ "${CLUSTER_VERIFY_EXPECTED_PODS}" != "${number_pods}" ]; then
+        echo "ERROR: expected ${CLUSTER_VERIFY_EXPECTED_PODS} Pods, found ${number_pods}"
+        echo "GPU driver test failed, use 'kubectl -n ${CLUSTER_VERIFY_NS} describe nodes' to check GPU driver status"
+        exit 1
+    fi
+fi
+
+# Only delete on success to allow debugging
+kubectl delete ns ${CLUSTER_VERIFY_NS}
