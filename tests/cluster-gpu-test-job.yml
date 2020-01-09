@@ -9,7 +9,7 @@ spec:
   template:
     spec:
       containers:
-        - name: tensorflow-container
+        - name: cluster-gpu-tests
           image: nvcr.io/nvidia/cuda:10.0-devel
           command: ["/bin/bash","-c","nvidia-smi && sleep 30"]
           args:
