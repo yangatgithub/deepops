@@ -40,7 +40,7 @@ echo "executing ..."
 kubectl -n ${CLUSTER_VERIFY_NS} create -f $TESTS_DIR/cluster-gpu-test-job.yml > /dev/null
 sleep 18
 
-# The test job sleeps for 60 seconds, so if we create the pods and wait less than 30 seconds we should have everything in either a RUNNING or PENDING state
+# The test job sleeps for 120 seconds, so if we create the pods and wait less than 120 seconds we should have everything in either a RUNNING or PENDING state
 pods_output=$(kubectl -n ${CLUSTER_VERIFY_NS} get pods | grep ${job_name} | awk '$3 ~/Running/ {print $1}' )
 string_array=($pods_output)
 number_pods=${#string_array[@]}
