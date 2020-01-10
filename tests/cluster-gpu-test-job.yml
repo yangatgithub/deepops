@@ -11,7 +11,7 @@ spec:
       containers:
         - name: cluster-gpu-tests
           image: nvcr.io/nvidia/cuda:10.0-devel
-          command: ["/bin/bash","-c","nvidia-smi && sleep 30"]
+          command: ["/bin/bash","-c","nvidia-smi && sleep 120"]
           args:
           resources:
             limits:
